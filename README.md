@@ -1,55 +1,55 @@
-# Реестр квартир
+# Apartment Registry
 
-Консольная программа для ведения реестра квартир с поддержкой русского языка. Работает в терминале Linux / WSL.
+A console application for managing an apartment registry with Russian language support. Runs in a Linux / WSL terminal.
 
-## Возможности
+## Features
 
-- Хранение записей о квартирах: ФИО владельца, улица, номер дома и квартиры, площадь, количество жильцов
-- Навигация по списку стрелками и постраничный просмотр
-- Сортировка по фамилии владельца (по возрастанию и убыванию)
-- Группировка квартир по улицам
-- Поиск записей по названию улицы
-- Сохранение и загрузка базы в бинарном и текстовом форматах
-- Полная поддержка UTF-8 (кириллица)
+- Store apartment records: owner's full name, street, house and flat numbers, area, number of residents
+- Navigate the list with arrow keys and paginated view
+- Sort records by owner's surname (ascending and descending)
+- Group apartments by street
+- Search records by street name
+- Save and load the database in binary and text formats
+- Full UTF-8 support (Cyrillic)
 
-## Сборка
+## Build
 
 ```bash
 g++ -o flat_registry main.cpp
 ```
 
-## Запуск
+## Run
 
 ```bash
 ./flat_registry
 ```
 
-Для интерактивного тестирования через tmux:
+For interactive testing via tmux:
 
 ```bash
 tmux new-session -d -s reg -x 120 -y 40 './flat_registry'
 tmux attach -t reg
 ```
 
-## Управление
+## Controls
 
-| Клавиша      | Действие                    |
+| Key          | Action                      |
 |--------------|-----------------------------|
-| `↑` / `↓`    | Навигация по меню и списку  |
-| `Enter`      | Выбрать пункт               |
-| `Escape`     | Отмена ввода                |
-| `Backspace`  | Удалить символ при вводе    |
+| `↑` / `↓`    | Navigate menu and list      |
+| `Enter`      | Confirm selection           |
+| `Escape`     | Cancel input                |
+| `Backspace`  | Delete character            |
 
-## Форматы файлов
+## File formats
 
-**Бинарный** (`.bin`) — быстрая загрузка, хранит записи фиксированной длины (104 байта/запись).
+**Binary** (`.bin`) — fast loading, stores records at a fixed size (104 bytes/record).
 
-**Текстовый** (`.txt`) — читаемый формат с выровненными колонками, поддерживает UTF-8 заголовки.
+**Text** (`.txt`) — human-readable format with aligned columns, supports UTF-8 headers.
 
-Тестовые данные: `test.bin` (12 записей, 3 улицы: Ленина, Мира, Садовая).
+Test data: `test.bin` (12 records, 3 streets: Lenina, Mira, Sadovaya).
 
-## Системные требования
+## Requirements
 
-- Linux или WSL2
-- GCC с поддержкой C++11 и выше
-- Терминал с поддержкой UTF-8 и ANSI-кодов
+- Linux or WSL2
+- GCC with C++11 or later
+- Terminal with UTF-8 and ANSI escape code support
