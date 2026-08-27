@@ -100,6 +100,60 @@ static void cls() {
     system("clear");
 }
 
+// Читает строку в raw-режиме с эхом. ESC → возвращает true (отмена), Enter → false (ОК).
+// Поддерживает Backspace и многобайтовый UTF-8 (кириллица).
+static bool raw_readline(char* buf, int maxbytes) {
+    int len = 0;
+    buf[0] = '\0';
+    while (true) {
+        unsigned char c;
+        if (read(STDIN_FILENO, &c, 1) <= 0) return true;
+        if (c == 27) {
+            // Проверяем: escape-последовательность (стрелка) или настоящий ESC
+            fd_set fds;
+            struct timeval tv = {0, 50000};
+            FD_ZERO(&fds);
+            FD_SET(STDIN_FILENO, &fds);
+            if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {
+                unsigned char b;
+                read(STDIN_FILENO, &b, 1);
+                if (b == '[') { unsigned char b2; read(STDIN_FILENO, &b2, 1); }
+                continue; // стрелки и прочие escape-seq игнорируем
+            }
+            return true; // настоящий ESC — отмена
+        }
+        if (c == 13 || c == 10) return false; // Enter — подтверждение
+        if (c == 127 || c == 8) { // Backspace
+            if (len > 0) {
+                len--;
+                while (len > 0 && ((unsigned char)buf[len] & 0xC0) == 0x80)
+                    len--;
+                buf[len] = '\0';
+                printf("\b \b"); // стираем 1 символ (любой, в т.ч. кириллицу — 1 колонка)
+                fflush(stdout);
+            }
+            continue;
+        }
+        if (c < 32) continue;
+        int seqlen = (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : (c >= 0xC0) ? 2 : 1;
+        if (len + seqlen < maxbytes) {
+            int start = len;
+            buf[len++] = c;
+            bool ok = true;
+            for (int i = 1; i < seqlen; i++) {
+                unsigned char cont;
+                if (read(STDIN_FILENO, &cont, 1) > 0)
+                    buf[len++] = cont;
+                else { ok = false; break; }
+            }
+            if (!ok) { len = start; continue; } // откат при неполной последовательности
+            buf[len] = '\0';
+            write(STDOUT_FILENO, buf + start, seqlen);
+            fflush(stdout);
+        }
+    }
+}
+
 // Возвращает количество «лишних» байт UTF-8 строки относительно отображаемой ширины.
 // Считаем только ведущие байты многобайтовых последовательностей:
 //   2-байтный символ (0xC0–0xDF): +1 лишний байт  ← кириллица всегда здесь
@@ -487,17 +541,12 @@ void refresh_register(char* s) {
 bool read_way(const char* message, char* s) {
     char buf[60];
     cls();
-    printf("Для отмены операции нажмите Enter без ввода\n");
+    printf("Для отмены нажмите Escape\n");
     printf("%s: ", message);
     fflush(stdout);
-    enter_cooked();
-    char* res = fgets(buf, sizeof(buf), stdin);
-    enter_raw();
+    if (raw_readline(buf, sizeof(buf))) { cls(); return false; }
     cls();
-    if (!res) return false;
-    int len = strlen(buf);
-    if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
-    if (len == 0) return false;
+    if (strlen(buf) == 0) return false;
     strncpy(s, buf, 49);
     s[49] = '\0';
     return true;
@@ -507,17 +556,12 @@ bool read_str(const char* message, char* s) {
     char buf[100];
     while (true) {
         cls();
-        printf("Для отмены операции нажмите Enter без ввода\n");
+        printf("Для отмены нажмите Escape\n");
         printf("%s: ", message);
         fflush(stdout);
-        enter_cooked();
-        char* res = fgets(buf, sizeof(buf), stdin);
-        enter_raw();
-        if (!res) return true;
+        if (raw_readline(buf, 20)) return true;
         int len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
-        if (len == 0) return true;
-        // Допустимы только буквы (латиница и кириллица в UTF-8) и дефис
+        if (len == 0) continue;
         bool valid = true;
         for (int i = 0; i < len && valid; ) {
             unsigned char c1 = (unsigned char)buf[i];
@@ -531,10 +575,7 @@ bool read_str(const char* message, char* s) {
                 valid = false;
             }
         }
-        if (!valid) {
-            error("Недопустимые символы! Только буквы и дефис.");
-            continue;
-        }
+        if (!valid) { error("Недопустимые символы! Только буквы и дефис."); continue; }
         strncpy(s, buf, 19);
         s[19] = '\0';
         refresh_register(s);
@@ -546,17 +587,12 @@ bool read_str_for_street(const char* message, char* s) {
     char buf[100];
     while (true) {
         cls();
-        printf("Для отмены операции нажмите Enter без ввода\n");
+        printf("Для отмены нажмите Escape\n");
         printf("%s: ", message);
         fflush(stdout);
-        enter_cooked();
-        char* res = fgets(buf, sizeof(buf), stdin);
-        enter_raw();
-        if (!res) return true;
+        if (raw_readline(buf, 30)) return true;
         int len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
-        if (len == 0) return true;
-        // Допустимы буквы, цифры, пробел, дефис
+        if (len == 0) continue;
         bool valid = true;
         for (int i = 0; i < len && valid; ) {
             unsigned char c1 = (unsigned char)buf[i];
@@ -572,10 +608,7 @@ bool read_str_for_street(const char* message, char* s) {
                 valid = false;
             }
         }
-        if (!valid) {
-            error("Недопустимые символы! Буквы, цифры, пробел, дефис.");
-            continue;
-        }
+        if (!valid) { error("Недопустимые символы! Буквы, цифры, пробел, дефис."); continue; }
         strncpy(s, buf, 29);
         s[29] = '\0';
         refresh_register(s);
@@ -587,16 +620,11 @@ bool read_short(const char* s, short& n) {
     char buf[30];
     while (true) {
         cls();
-        printf("Для отмены введите пустую строку и нажмите Enter\n");
+        printf("Для отмены нажмите Escape\n");
         printf("%s: ", s);
         fflush(stdout);
-        enter_cooked();
-        char* res = fgets(buf, sizeof(buf), stdin);
-        enter_raw();
-        if (!res) return true;
-        int len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
-        if (len == 0) return true;
+        if (raw_readline(buf, sizeof(buf))) return true;
+        if (strlen(buf) == 0) continue;
         int val;
         if (sscanf(buf, "%d", &val) == 1 && val > 0 && val <= 32767) {
             n = (short)val;
@@ -610,16 +638,11 @@ bool read_float(const char* s, float& result) {
     char buf[50];
     while (true) {
         cls();
-        printf("Для отмены введите пустую строку и нажмите Enter\n");
+        printf("Для отмены нажмите Escape\n");
         printf("%s (например: 45.50): ", s);
         fflush(stdout);
-        enter_cooked();
-        char* res = fgets(buf, sizeof(buf), stdin);
-        enter_raw();
-        if (!res) return true;
-        int len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
-        if (len == 0) return true;
+        if (raw_readline(buf, sizeof(buf))) return true;
+        if (strlen(buf) == 0) continue;
         float val;
         if (sscanf(buf, "%f", &val) == 1 && val > 0 && val < 10000) {
             result = val;
@@ -682,11 +705,11 @@ flat read_from_text(FILE* f) {
     skip(f);
     fscanf(f, "%hi", &fl.n);
     skip(f);
-    fscanf(f, "%s", fl.surname);
+    fscanf(f, "%19s", fl.surname);
     skip(f);
-    fscanf(f, "%s", fl.name);
+    fscanf(f, "%19s", fl.name);
     skip(f);
-    fscanf(f, "%s", fl.patronymic);
+    fscanf(f, "%19s", fl.patronymic);
     skip(f);
     do {
         char c = fgetc(f);
@@ -955,7 +978,7 @@ pair sort_process(bi_list* beg, short d) {
     temp = beg;
     d *= -1;
     while (temp->r != NULL) {
-        if (strcmp(temp->r->inf.surname, temp->inf.surname) == d) {
+        if ((strcmp(temp->r->inf.surname, temp->inf.surname) > 0) == (d > 0)) {
             t1 = temp->r;
             t1->l->r = t1->r;
             if (t1->r)
@@ -965,7 +988,7 @@ pair sort_process(bi_list* beg, short d) {
             else
                 t = temp;
             while (true) {
-                if (strcmp(t1->inf.surname, t->inf.surname) != d) {
+                if ((strcmp(t1->inf.surname, t->inf.surname) > 0) != (d > 0)) {
                     t1->l = t;
                     t1->r = t->r;
                     t->r = t1;
@@ -1102,8 +1125,14 @@ void save(bi_list* beg) {
                 fprintf(f, "------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
                 for (beg; beg != NULL; beg = beg->r) {
                     fl = beg->inf;
-                    fprintf(f, "| %4hi | %20s | %20s | %20s | ", fl.n, fl.surname, fl.name, fl.patronymic);
-                    fprintf(f, "%30s | %5hi | %8hi | %14hi | %7.2f |\n", fl.street, fl.house, fl.flat, fl.residents, fl.area);
+                    fprintf(f, "| %4hi | %*s | %*s | %*s | ",
+                        fl.n,
+                        20 + utf8_extra(fl.surname),    fl.surname,
+                        20 + utf8_extra(fl.name),       fl.name,
+                        20 + utf8_extra(fl.patronymic), fl.patronymic);
+                    fprintf(f, "%*s | %5hi | %8hi | %14hi | %7.2f |\n",
+                        30 + utf8_extra(fl.street), fl.street,
+                        fl.house, fl.flat, fl.residents, fl.area);
                     fprintf(f, "------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
                 }
             }
@@ -1117,7 +1146,8 @@ void save(bi_list* beg) {
 
 pair load(bi_list* beg, short& k) {
     pair back;
-    short n, c;
+    short n;
+    long c;
     bi_list* t, * end;
     char s[50];
     bool p;
@@ -1141,7 +1171,11 @@ pair load(bi_list* beg, short& k) {
             if (p) {
                 fseek(f, 0, SEEK_END);
                 c = ftell(f);
-                fseek(f, 474, SEEK_SET);
+                // Пропускаем 3 строки заголовка без хардкода смещения
+                rewind(f);
+                { int lines = 0, ch;
+                  while (lines < 3 && (ch = fgetc(f)) != EOF)
+                      if (ch == '\n') lines++; }
                 beg = (bi_list*)malloc(size_bi_list);
                 beg->inf = read_from_text(f);
                 beg->inf.n = 1;
@@ -1355,7 +1389,7 @@ void create_street(bi_list* beg) {
         t = top_str;
         while (true) {
             c = strcmp(beg->inf.street, t->inf);
-            if (c == 1) {
+            if (c > 0) {
                 if (t->r == NULL) {
                     t1 = new_street(beg->inf);
                     t1->l = t;
@@ -1365,7 +1399,7 @@ void create_street(bi_list* beg) {
                 else
                     t = t->r;
             }
-            else if (c == -1) {
+            else if (c < 0) {
                 t1 = new_street(beg->inf);
                 if (t == top_str) {
                     t1->r = top_str;
